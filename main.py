@@ -1,3 +1,5 @@
+from typing import List, Tuple, Any
+
 import keras
 import nltk
 import pandas as pd
@@ -16,7 +18,7 @@ from nltk.tokenize import RegexpTokenizer
 import matplotlib.pyplot as plt
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, classification_report
 
-import numpy as np
+# import numpy as np
 import itertools
 from sklearn.metrics import confusion_matrix
 
@@ -34,52 +36,62 @@ from keras.preprocessing.text import Tokenizer
 from keras.preprocessing.sequence import pad_sequences
 from keras.utils import to_categorical
 
+from pandas import DataFrame
+
 import gensim
 
-input_file = codecs.open("socialmedia_relevant_cols.csv", "r", encoding='utf-8', errors='replace')
-output_file = open("socialmedia_relevant_cols_clean.csv", "w", encoding='utf-8')
+input_file_name: str = "movie_review.csv"  # "movie_review.csv"#"socialmedia_relevant_cols.csv"
+clean_file_name: str = "clean_" + input_file_name
+
+target_column: str = "tag"  # "class_label"#"tag"
 
 
-def sanitize_characters(raw, clean):
-    for line in input_file:
-        out = line
-        output_file.write(line)
+def read_file(file_name: str) -> DataFrame:
+    output_file = open(clean_file_name, "w", encoding='utf-8')
+
+    def sanitize_characters(raw, clean):
+        for line in input_file:
+            out = line
+            output_file.write(line)
+
+    input_file = codecs.open(file_name, "r", encoding='utf-8', errors='replace')
+    sanitize_characters(input_file, output_file)
+
+    questions = pd.read_csv(clean_file_name)
+    # questions.columns = ['text', 'tag']
+    questions.head()
+
+    questions.describe()
+
+    def standardize_text(df, text_field):
+        df[text_field] = df[text_field].str.replace(r"http\S+", "")
+        df[text_field] = df[text_field].str.replace(r"http", "")
+        df[text_field] = df[text_field].str.replace(r"@\S+", "")
+        df[text_field] = df[text_field].str.replace(r"[^A-Za-z0-9(),!?@\'\`\"\_\n]", " ")
+        df[text_field] = df[text_field].str.replace(r"@", "at")
+        df[text_field] = df[text_field].str.lower()
+        return df
+
+    questions = standardize_text(questions, "text")
+    questions.to_csv("clean_data.csv")
+    questions.head()
+
+    clean_questions: DataFrame = pd.read_csv("clean_data.csv")
+    clean_questions.tail()
+
+    clean_questions.groupby(target_column).count()
+    clean_questions[target_column] = clean_questions[target_column].apply(lambda s: "1" if s == "pos" else "0")
+
+    tokenizer: RegexpTokenizer = RegexpTokenizer(r'\w+')
+    clean_questions["tokens"] = clean_questions["text"].apply(tokenizer.tokenize)
+    clean_questions.head()
+
+    return clean_questions
 
 
-sanitize_characters(input_file, output_file)
-
-questions = pd.read_csv("socialmedia_relevant_cols_clean.csv")
-questions.columns = ['text', 'choose_one', 'class_label']
-questions.head()
-
-questions.describe()
-
-
-def standardize_text(df, text_field):
-    df[text_field] = df[text_field].str.replace(r"http\S+", "")
-    df[text_field] = df[text_field].str.replace(r"http", "")
-    df[text_field] = df[text_field].str.replace(r"@\S+", "")
-    df[text_field] = df[text_field].str.replace(r"[^A-Za-z0-9(),!?@\'\`\"\_\n]", " ")
-    df[text_field] = df[text_field].str.replace(r"@", "at")
-    df[text_field] = df[text_field].str.lower()
-    return df
-
-
-questions = standardize_text(questions, "text")
-questions.to_csv("clean_data.csv")
-questions.head()
-
-clean_questions = pd.read_csv("clean_data.csv")
-clean_questions.tail()
-
-clean_questions.groupby("class_label").count()
-
-tokenizer = RegexpTokenizer(r'\w+')
-clean_questions["tokens"] = clean_questions["text"].apply(tokenizer.tokenize)
-clean_questions.head()
-
-all_words = [word for tokens in clean_questions["tokens"] for word in tokens]
-sentence_lengths = [len(tokens) for tokens in clean_questions["tokens"]]
+clean_questions: DataFrame = read_file(input_file_name)
+all_words: List[str] = [word for tokens in clean_questions["tokens"] for word in tokens]
+sentence_lengths: List[int] = [len(tokens) for tokens in clean_questions["tokens"]]
 VOCAB = sorted(list(set(all_words)))
 print("%s words total, with a vocabulary size of %s" % (len(all_words), len(VOCAB)))
 print("Max sentence length is %s" % max(sentence_lengths))
@@ -91,14 +103,14 @@ plt.hist(sentence_lengths)
 plt.show()
 
 
-def cv(data):
+def cv(data: DataFrame) -> Tuple[Any, CountVectorizer]:
     count_vectorizer = CountVectorizer()
     emb = count_vectorizer.fit_transform(data)
     return emb, count_vectorizer
 
 
-list_corpus = clean_questions["text"].tolist()
-list_labels = clean_questions["class_label"].tolist()
+list_corpus: List = clean_questions["text"].tolist()
+list_labels: List = clean_questions[target_column].tolist()
 X_train, X_test, y_train, y_test = train_test_split(list_corpus, list_labels, test_size=0.2, random_state=40)
 X_train_counts, count_vectorizer = cv(X_train)
 X_test_counts = count_vectorizer.transform(X_test)
@@ -115,11 +127,12 @@ def plot_LSA(test_data, test_labels, savepath="PCA_demo.csv", plot=True):
         plt.scatter(lsa_scores[:, 0], lsa_scores[:, 1], s=8, alpha=.8, c=test_labels,
                     cmap=matplotlib.colors.ListedColormap(colors))
         red_patch = mpatches.Patch(color='orange', label='Irrelevant')
-        green_patch = mpatches.Patch(color='blue', label='Disaster')
+        green_patch = mpatches.Patch(color='blue', label='Film')
         plt.legend(handles=[red_patch, green_patch], prop={'size': 30})
 
 
 fig = plt.figure(figsize=(16, 16))
+
 plot_LSA(X_train_counts, y_train)
 plt.show()
 
@@ -170,7 +183,7 @@ def plot_confusion_matrix(cm, classes,
 
 cm = confusion_matrix(y_test, y_predicted_counts)
 fig = plt.figure(figsize=(10, 10))
-plot = plot_confusion_matrix(cm, classes=['Irrelevant', 'Disaster', 'Unsure'], normalize=
+plot = plot_confusion_matrix(cm, classes=['Irrelevant', 'Film', 'Unsure'], normalize=
 False, title='Confusion matrix')
 plt.show()
 print(cm)
@@ -214,20 +227,22 @@ def plot_important_words(top_scores, top_words, bottom_scores, bottom_words, nam
     plt.xlabel('Importance', fontsize=20)
     plt.subplot(122)
     plt.barh(y_pos, top_scores, align='center', alpha=0.5)
-    plt.title('Disaster', fontsize=20)
+    plt.title('Film', fontsize=20)
     plt.yticks(y_pos, top_words, fontsize=14)
     plt.suptitle(name, fontsize=16)
     plt.xlabel('Importance', fontsize=20)
     plt.subplots_adjust(wspace=0.8)
     plt.show()
 
+def plot_top_scores(importances):
+    #print(importance)
+    top_scores = [a[0] for a in importances[0]['tops']]
+    top_words = [a[1] for a in importances[0]['tops']]
+    bottom_scores = [a[0] for a in importances[0]['bottom']]
+    bottom_words = [a[1] for a in importances[0]['bottom']]
+    plot_important_words(top_scores, top_words, bottom_scores, bottom_words, "Most important words for relevance")
 
-top_scores = [a[0] for a in importance[1]['tops']]
-top_words = [a[1] for a in importance[1]['tops']]
-bottom_scores = [a[0] for a in importance[1]['bottom']]
-bottom_words = [a[1] for a in importance[1]['bottom']]
-plot_important_words(top_scores, top_words, bottom_scores, bottom_words, "Most important words for relevance")
-
+plot_top_scores(importance)
 
 def tfidf(data):
     tfidf_vectorizer = TfidfVectorizer()
@@ -248,11 +263,11 @@ y_predicted_tfidf = clf_tfidf.predict(X_test_tfidf)
 
 accuracy_tfidf, precision_tfidf, recall_tfidf, f1_tfidf = get_metrics(y_test, y_predicted_tfidf)
 print("accuracy = %.3f, precision = %.3f, recall = %.3f, f1 = %.3f" % (
-accuracy_tfidf, precision_tfidf, recall_tfidf, f1_tfidf))
+    accuracy_tfidf, precision_tfidf, recall_tfidf, f1_tfidf))
 
 cm2 = confusion_matrix(y_test, y_predicted_tfidf)
 fig = plt.figure(figsize=(10, 10))
-plot = plot_confusion_matrix(cm2, classes=['Irrelevant', 'Disaster', 'Unsure'], normalize
+plot = plot_confusion_matrix(cm2, classes=['Irrelevant', 'Film', 'Unsure'], normalize
 =False, title='Confusion matrix')
 plt.show()
 print("TFIDF confusion matrix")
@@ -261,15 +276,15 @@ print("BoW confusion matrix")
 print(cm)
 
 importance_tfidf = get_most_important_features(tfidf_vectorizer, clf_tfidf, 10)
-
-top_scores = [a[0] for a in importance_tfidf[1]['tops']]
-top_words = [a[1] for a in importance_tfidf[1]['tops']]
-bottom_scores = [a[0] for a in importance_tfidf[1]['bottom']]
-bottom_words = [a[1] for a in importance_tfidf[1]['bottom']]
-plot_important_words(top_scores, top_words, bottom_scores, bottom_words, "Most important words for relevance")
+plot_top_scores(importance_tfidf)
+# top_scores = [a[0] for a in importance_tfidf[1]['tops']]
+# top_words = [a[1] for a in importance_tfidf[1]['tops']]
+# bottom_scores = [a[0] for a in importance_tfidf[1]['bottom']]
+# bottom_words = [a[1] for a in importance_tfidf[1]['bottom']]
+# plot_important_words(top_scores, top_words, bottom_scores, bottom_words, "Most important words for relevance")
 
 word2vec_path = "GoogleNews-vectors-negative300.bin.gz"
-word2vec = gensim.models.KeyedVectors.load_word2vec_format(word2vec_path, binary=False)
+word2vec = gensim.models.KeyedVectors.load_word2vec_format(word2vec_path, binary=True)
 
 
 def get_average_word2vec(tokens_list, vector, generate_missing=False, k=300):
@@ -312,7 +327,7 @@ y_predicted_word2vec = clf_w2v.predict(X_test_word2vec)
 
 cm_w2v = confusion_matrix(y_test_word2vec, y_predicted_word2vec)
 fig = plt.figure(figsize=(10, 10))
-plot = plot_confusion_matrix(cm, classes=['Irrelevant', 'Disaster', 'Unsure'], normalize=False,
+plot = plot_confusion_matrix(cm, classes=['Irrelevant', 'Film', 'Unsure'], normalize=False,
                              title='Confusion matrix')
 plt.show()
 print("Word2Vec confusion matrix")
@@ -332,7 +347,7 @@ sequences = tokenizer.texts_to_sequences(clean_questions["text"].tolist())
 word_index = tokenizer.word_index
 print('Found %s unique tokens.' % len(word_index))
 cnn_data = pad_sequences(sequences, maxlen=MAX_SEQUENCE_LENGTH)
-labels = to_categorical(np.asarray(clean_questions["class_label"]))
+labels = to_categorical(np.asarray(clean_questions[target_column]))
 indices = np.arange(cnn_data.shape[0])
 np.random.shuffle(indices)
 cnn_data = cnn_data[indices]
@@ -355,7 +370,8 @@ def ConvNet(embeddings, max_sequence_length, num_words, embedding_dim, labels_in
     for filter_size in filter_sizes:
         l_conv = Conv1D(filters=128, kernel_size=filter_size, activation='relu')(embedded_sequences)
         l_pool = MaxPooling1D(pool_size=3)(l_conv)
-    convs.append(l_pool)
+        convs.append(l_pool)
+
     l_merge = concatenate(convs, axis=1)
     # add a 1D convnet with global maxpooling, instead of Yoon Kim model
     conv = Conv1D(filters=128, kernel_size=3, activation='relu')(embedded_sequences)
@@ -378,7 +394,7 @@ x_train = cnn_data[:-num_validation_samples]
 y_train = labels[:-num_validation_samples]
 x_val = cnn_data[-num_validation_samples:]
 y_val = labels[-num_validation_samples:]
-model = ConvNet(embedding_weights, MAX_SEQUENCE_LENGTH, len(word_index) + 1, EMBEDDING_DIM,
-                len(list(clean_questions["class_label"].unique())), False)
+model = ConvNet(embedding_weights, MAX_SEQUENCE_LENGTH, len(word_index) + 1, EMBEDDING_DIM,                len(list(clean_questions[target_column].unique())), False)
 
 model.fit(x_train, y_train, validation_data=(x_val, y_val), epochs=3, batch_size=128)
+print("end")
